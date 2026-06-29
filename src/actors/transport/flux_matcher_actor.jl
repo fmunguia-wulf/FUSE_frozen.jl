@@ -1180,12 +1180,15 @@ function check_evolve_densities(cp1d::IMAS.core_profiles__profiles_1d, evolve_de
     end
 
     # Check there are no stale species in evolve_densities that no longer exist in dd
-    @assert sort!([specie for (specie, evolve) in evolve_densities]) == sort!(dd_species) "Mismatch: dd species $(sort!(dd_species)) VS evolve_densities species : $(sort!(collect(keys(evolve_densities))))"
+    @assert sort(collect(keys(evolve_densities))) == sort(dd_species) "Mismatch: dd species $(sort(dd_species)) VS evolve_densities species : $(sort(collect(keys(evolve_densities))))"
 
-    # Check that either all species are fixed, or there is 1 quasi_neutrality specie when evolving densities
-    if any(evolve == :zeff for (specie, evolve) in evolve_densities if specie != :electrons)
-        txt = "When flux_matching densities, either none or all ion species must be :zeff"
-        @assert all(evolve == :zeff for (specie, evolve) in evolve_densities if specie != :electrons)
+    is_fast(s) = endswith(string(s), "_fast")
+
+    # Check that either all species are fixed, or there is 1 quasi_neutrality specie when evolving densities.
+    # Fast-ion species (e.g. D_fast) are legitimately :fixed while thermal ions are :zeff — exclude them from this check.
+    if any(evolve == :zeff for (specie, evolve) in evolve_densities if !is_fast(specie) && specie != :electrons)
+        txt = "When flux_matching densities, either none or all thermal ion species must be :zeff"
+        @assert all(evolve == :zeff for (specie, evolve) in evolve_densities if !is_fast(specie) && specie != :electrons)
     elseif all(evolve in (:fixed, :replay) for (specie, evolve) in evolve_densities if evolve != :quasi_neutrality)
         txt = "When using fixed/replay densities, no more than one species can be set to :quasi_neutrality"
         @assert length([specie for (specie, evolve) in evolve_densities if evolve == :quasi_neutrality]) <= 1 txt
