@@ -632,14 +632,14 @@ function flux_match_errors(
     # evolve pedestal
     if par.evolve_pedestal
         # modify cp1d with new z_profiles
-        unpack_z_profiles(cp1d, par, z_profiles)
+        unpack_z_profiles(cp1d, par, z_profiles, initial_cp1d)
         # run pedestal
         actor.actor_ped.par.βn_from = :core_profiles
         finalize(step(actor.actor_ped))
     end
 
     # modify cp1d with new z_profiles
-    unpack_z_profiles(cp1d, par, z_profiles)
+    unpack_z_profiles(cp1d, par, z_profiles, initial_cp1d)
 
     # evaluate intrinsic sources (i.e., target fluxes)
     par.evolve_plasma_sources && IMAS.intrinsic_sources!(dd; bootstrap=false)
@@ -1009,7 +1009,8 @@ end
     unpack_z_profiles(
         cp1d::IMAS.core_profiles__profiles_1d,
         par::OverrideParameters{P,FUSEparameters__ActorFluxMatcher{P}},
-        z_profiles::AbstractVector{<:Real}) where {P<:Real}
+        z_profiles::AbstractVector{<:Real},
+        initial_cp1d::IMAS.core_profiles__profiles_1d) where {P<:Real}
 
 Unpacks z_profiles based on evolution parameters
 
@@ -1018,7 +1019,8 @@ NOTE: The order for packing and unpacking is always: [Ti, Te, Rotation, ne, nis.
 function unpack_z_profiles(
     cp1d::IMAS.core_profiles__profiles_1d,
     par::OverrideParameters{P,FUSEparameters__ActorFluxMatcher{P}},
-    z_profiles::AbstractVector{<:Real}) where {P<:Real}
+    z_profiles::AbstractVector{<:Real},
+    initial_cp1d::IMAS.core_profiles__profiles_1d) where {P<:Real}
 
     cp_gridpoints = [argmin_abs(cp1d.grid.rho_tor_norm, rho_x) for rho_x in par.rho_transport]
     cp_rho_transport = cp1d.grid.rho_tor_norm[cp_gridpoints]
@@ -1588,7 +1590,7 @@ function ad_flux_match_errors!(
     z_profiles = unscale_z_profiles(opt_parameters)
 
     # Unpack z-profiles into cp1d (writes Dual profiles)
-    unpack_z_profiles(cp1d_ad, par, z_profiles)
+    unpack_z_profiles(cp1d_ad, par, z_profiles, initial_cp1d)
 
     # Evaluate intrinsic sources (reads Dual cp1d + equilibrium, writes to dd_ad.core_sources)
     if par.evolve_plasma_sources
