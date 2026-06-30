@@ -1,5 +1,3 @@
-
-
 """
     case_parameters(::Val{:D3D}, shot::Int;
         fit_profiles::Bool=true,
@@ -70,7 +68,6 @@ function case_parameters(::Val{:D3D}, shot::Int;
     if !isdir(local_path)
         mkdir(local_path)
     end
-
 
     # to get user EFITs use (shot, USER01) to get (shot01, EFIT)
     if contains(EFIT_tree, "USER")
@@ -181,16 +178,28 @@ function case_parameters(::Val{:D3D}, shot::Int;
             Base.run(`bash $local_path/local_driver.sh`)
         end
     end
+
     # load experimental ods
     ini.ods.filename = "$(ini.ods.filename),$(joinpath(local_path,filename)),$(joinpath(local_path,"nbi_ods_$shot.h5"))"
     @info("Loading files: $(join(map(basename,split(ini.ods.filename,","))," ; "))")
     ini.general.dd = dd1 = load_ods(ini; error_on_missing_coordinates=false, time_from_ods=true)
 
-    # simulation starts when both equilibrium and profiles are available
-    ini.time.simulation_start = max(ini.general.dd.equilibrium.time_slice[2].time, ini.general.dd.core_profiles.profiles_1d[2].time)
-    t_eq = length(ini.general.dd.equilibrium.time_slice) >= 2 ? ini.general.dd.equilibrium.time_slice[2].time : -Inf
-    t_cp = length(ini.general.dd.core_profiles.profiles_1d) >= 2 ? ini.general.dd.core_profiles.profiles_1d[2].time : -Inf
-    ini.time.simulation_start = max(t_eq, t_cp)
+    # disable fit_profiles for single-time EFITs and align times
+    if length(dd1.equilibrium.time_slice) == 1
+        if fit_profiles
+            @warn "Single-time EFIT detected — disabling fit_profiles"
+            fit_profiles = false
+        end
+        # snap equilibrium time to nearest core profiles time to avoid floating point mismatches
+        eq_time = dd1.equilibrium.time_slice[1].time
+        cp_times = [cp1d.time for cp1d in dd1.core_profiles.profiles_1d]
+        nearest_cp_time = cp_times[argmin(abs.(cp_times .- eq_time))]
+        dd1.equilibrium.time_slice[1].time = nearest_cp_time
+        ini.time.simulation_start = nearest_cp_time
+        dd1.global_time = nearest_cp_time
+    else
+        ini.time.simulation_start = max(dd1.equilibrium.time_slice[2].time, dd1.core_profiles.profiles_1d[2].time)
+    end
 
     # sanitize dd
     for nbu in dd1.nbi.unit
@@ -201,6 +210,22 @@ function case_parameters(::Val{:D3D}, shot::Int;
     # set time basis
     tt = dd1.equilibrium.time
     ini.time.pulse_shedule_time_basis = range(tt[1], tt[end], 100)
+
+    if length(dd1.equilibrium.time_slice) == 1
+        if fit_profiles
+            @warn "Single-time EFIT detected — disabling fit_profiles"
+            fit_profiles = false
+        end
+        eq_time = dd1.equilibrium.time_slice[1].time
+        cp_times = [cp1d.time for cp1d in dd1.core_profiles.profiles_1d]
+        nearest_cp_time = cp_times[argmin(abs.(cp_times .- eq_time))]
+        dd1.equilibrium.time_slice[1].time = nearest_cp_time
+        dd1.equilibrium.time .= nearest_cp_time
+        dd1.global_time = nearest_cp_time
+        ini.time.simulation_start = nearest_cp_time
+    else
+    end
+   
 
     # add flux_surfaces information to experimental dd
     IMAS.flux_surfaces(dd1.equilibrium, IMAS.first_wall(dd1.wall)...)
@@ -275,100 +300,6 @@ function case_parameters(::Val{:D3D}, shot::Int;
 end
 
 """
-    case_parameters(::Val{:D3D}, ods_file::AbstractString)
-
-DIII-D from ods file
-"""
-function case_parameters(::Val{:D3D}, ods_file::AbstractString)
-    ini, act = case_parameters(Val(:D3D_machine))
-
-    ini.general.casename = "D3D $ods_file"
-    ini.ods.filename = "$(ini.ods.filename),$(ods_file)"
-
-    ini.general.dd = load_ods(ini; error_on_missing_coordinates=false, time_from_ods=true)
-    set_ini_act_from_ods!(ini, act)
-
-    return ini, act
-end
-
-"""
-    case_parameters(::Val{:D3D}, dd::IMAS.dd)
-
-DIII-D from dd file
-"""
-function case_parameters(::Val{:D3D}, dd::IMAS.dd)
-    ini, act = case_parameters(Val(:D3D_machine))
-
-    ini.general.casename = "D3D from dd"
-
-    ini.general.dd = load_ods(ini; error_on_missing_coordinates=false, time_from_ods=true)
-    merge!(ini.general.dd, dd)
-
-    IMAS.last_global_time(ini.general.dd)
-    ini.time.simulation_start = dd.global_time
-
-    set_ini_act_from_ods!(ini, act)
-
-    return ini, act
-end
-
-"""
-    case_parameters(::Val{:D3D}, scenario::Symbol)
-
-DIII-D from sample cases
-"""
-function case_parameters(::Val{:D3D}, scenario::Symbol)
-    filenames = Dict(
-        :H_mode => "$(joinpath("__FUSE__", "sample", "D3D_eq_ods.json")),$(joinpath("__FUSE__", "sample", "D3D_standard_Hmode.json"))",
-        :L_mode => "$(joinpath("__FUSE__", "sample", "D3D_standard_Lmode.json"))",
-        :default => "$(joinpath("__FUSE__", "sample", "D3D_eq_ods.json"))")
-
-    ini, act = case_parameters(Val(:D3D), filenames[scenario])
-    ini.general.casename = "D3D $scenario"
-
-    if isempty(ini.general.dd.core_sources)
-        resize!(ini.nb_unit, 3)
-        ini.nb_unit[1].power_launched = 1E6
-        ini.nb_unit[1].beam_energy = 80e3
-        ini.nb_unit[1].beam_mass = 2.0
-        ini.nb_unit[1].template_beam = :d3d_co
-
-        ini.nb_unit[2].power_launched = 1E6
-        ini.nb_unit[2].beam_energy = 80e3
-        ini.nb_unit[2].beam_mass = 2.0
-        ini.nb_unit[2].template_beam = :d3d_counter
-
-        ini.nb_unit[3].power_launched = 1E6
-        ini.nb_unit[3].beam_energy = 80e3
-        ini.nb_unit[3].beam_mass = 2.0
-        ini.nb_unit[3].template_beam = :d3d_offaxis
-
-        resize!(ini.ec_launcher, 1)
-        ini.ec_launcher[1].power_launched = 3E6
-    else
-        act.ActorSources.nb_model = :none
-        act.ActorSources.ec_model = :none
-        act.ActorSources.lh_model = :none
-        act.ActorSources.ic_model = :none
-        act.ActorSources.pellet_model = :none
-    end
-
-    if isempty(ini.general.dd.core_profiles)
-        ini.core_profiles.ne_setting = :greenwald_fraction_ped
-        ini.core_profiles.ne_value = 0.75 * 0.75
-        ini.core_profiles.ne_shaping = 0.9
-        ini.core_profiles.Te_shaping = 1.8
-        ini.core_profiles.Ti_Te_ratio = 1.0
-        ini.core_profiles.zeff = 2.0
-        ini.core_profiles.bulk = :D
-        ini.core_profiles.impurity = :C
-        ini.core_profiles.rot_core = 5E3
-    end
-
-    return ini, act
-end
-
-"""
     case_parameters(::Val{:D3D_machine})
 
 Base DIII-D machine parameters that are then extended by the other `case_parameters(:D3D, ...)` functions
@@ -428,9 +359,9 @@ function case_parameters(::Val{:D3D_machine})
 
     act.ActorTGLF.tglfnn_model = "sat1_em_d3d"
 
-    Ω = 1.0 / 1E6
-    act.ActorControllerIp.P = Ω * 100.0
-    act.ActorControllerIp.I = Ω * 20.0
+    Ω = 1.0 / 1E6
+    act.ActorControllerIp.P = Ω * 100.0
+    act.ActorControllerIp.I = Ω * 20.0
     act.ActorControllerIp.D = 0.0
 
     # average pedestal height, not peak
