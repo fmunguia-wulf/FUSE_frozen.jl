@@ -1067,7 +1067,9 @@ function unpack_z_profiles(
 
     evolve_densities = evolve_densities_dictionary(cp1d, par)
     if any(evolve_densities[Symbol(ion.label)] == :zeff for ion in cp1d.ion)
-        old_zeff = cp1d.zeff
+        # Use the pre-iteration snapshot so every nonlinear solver call rescales to the
+        # same target. cp1d.zeff is a derived quantity that drifts as ne/ions are updated.
+        old_zeff = copy(initial_cp1d.zeff)
     end
 
     if par.evolve_Te == :flux_match
