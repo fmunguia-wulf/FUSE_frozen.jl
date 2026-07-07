@@ -773,15 +773,24 @@ function _step(replay_actor::ActorReplay, actor::ActorPedestal, replay_dd::IMAS.
     replay_cp1d = replay_dd.core_profiles.profiles_1d[time0]
     rho = cp1d.grid.rho_tor_norm
 
-    # densities
-    cp1d.electrons.density_thermal = IMAS.blend_core_edge(cp1d.electrons.density_thermal, replay_cp1d.electrons.density_thermal, rho, par.rho_nml, par.rho_ped; method=:shift)
-    IMAS.unfreeze!(cp1d.electrons, :density)
-    for (ion, replay_ion) in zip(cp1d.ion, replay_cp1d.ion)
-        if !ismissing(ion, :density)
-            ion.density = IMAS.blend_core_edge(ion.density, replay_ion.density, rho, par.rho_nml, par.rho_ped; method=:shift)
-            IMAS.unfreeze!(ion, :density_thermal)
-            if IMAS.hasdata(ion, :density_fast)
-                ion.density_fast .= min.(ion.density_fast, ion.density)  # can't have more fast than total
+    # densities — skipped entirely when the flux matcher is holding densities to a
+    # prescribed Zeff. The :shift blend below re-anchors the core to replay_dd's
+    # original density at the pedestal boundary via an ADDITIVE offset, which does
+    # not preserve Zeff (Zeff = Σ nᵢZᵢ²/ne is nonlinear in the densities) — it silently
+    # fights the flux matcher's own zeff-preserving rescale every iteration.
+    ed = actor.act.ActorFluxMatcher.evolve_densities
+    holding_zeff = ed == :zeff || (ed isa AbstractDict && any(v == :zeff for v in values(ed)))
+
+    if !holding_zeff
+        cp1d.electrons.density_thermal = IMAS.blend_core_edge(cp1d.electrons.density_thermal, replay_cp1d.electrons.density_thermal, rho, par.rho_nml, par.rho_ped; method=:shift)
+        IMAS.unfreeze!(cp1d.electrons, :density)
+        for (ion, replay_ion) in zip(cp1d.ion, replay_cp1d.ion)
+            if !ismissing(ion, :density)
+                ion.density = IMAS.blend_core_edge(ion.density, replay_ion.density, rho, par.rho_nml, par.rho_ped; method=:shift)
+                IMAS.unfreeze!(ion, :density_thermal)
+                if IMAS.hasdata(ion, :density_fast)
+                    ion.density_fast .= min.(ion.density_fast, ion.density)  # can't have more fast than total
+                end
             end
         end
     end
