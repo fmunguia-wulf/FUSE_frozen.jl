@@ -26,6 +26,14 @@ import NonlinearSolve, FixedPointAcceleration
             * Dict to specify which species are `:flux_match`, kept `:fixed`, used to enforce `:quasi_neutrality`, scaled to `:match_ne_scale`, or `:replay`""";
             default=:flux_match
         )
+    zeff_target::Entry{Union{AbstractVector{T},Nothing}} =
+        Entry{Union{AbstractVector{T},Nothing}}(
+            "-",
+            "When evolve_densities=:zeff, hold Zeff at this explicit profile (on cp1d's grid) instead of " *
+            "reading it from cp1d.zeff at actor start — bypasses any upstream actor corrupting cp1d.zeff " *
+            "before the flux matcher runs. Leave `nothing` for the old behavior (snapshot at actor start).";
+            default=nothing
+        )
     evolve_rotation::Switch{Symbol} = Switch{Symbol}([:flux_match, :fixed, :replay], "-", "Rotation `:flux_match`, keep `:fixed`, or `:replay` from replay_dd"; default=:fixed)
     evolve_pedestal::Entry{Bool} = Entry{Bool}("-", "Evolve the pedestal at each iteration"; default=false)
     evolve_plasma_sources::Entry{Bool} = Entry{Bool}("-", "Update the plasma sources at each iteration"; default=true)
@@ -1069,9 +1077,11 @@ function unpack_z_profiles(
 
     evolve_densities = evolve_densities_dictionary(cp1d, par)
     if any(evolve_densities[Symbol(ion.label)] == :zeff for ion in cp1d.ion)
-        # Use the pre-iteration snapshot so every nonlinear solver call rescales to the
-        # same target. cp1d.zeff is a derived quantity that drifts as ne/ions are updated.
-        old_zeff = copy(initial_cp1d.zeff)
+        # An explicit zeff_target bypasses cp1d entirely, so it can't be corrupted by
+        # whatever ran before this actor's _step(). Otherwise fall back to the
+        # pre-iteration snapshot so every nonlinear solver call rescales to the same
+        # target — cp1d.zeff is a derived quantity that drifts as ne/ions are updated.
+        old_zeff = par.zeff_target !== nothing ? copy(par.zeff_target) : copy(initial_cp1d.zeff)
     end
 
     if par.evolve_Te == :flux_match
