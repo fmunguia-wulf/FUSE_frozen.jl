@@ -363,7 +363,7 @@ The EPED and WPED models only operate on the temperature profiles
 function pedestal_density_tanh(dd::IMAS.dd, par::OverrideParameters{P,FUSEparameters__ActorPedestal{P}};
                                density_factor::Float64, zeff_factor::Float64,
                                nn_prediction::Union{Nothing,NamedTuple}=nothing,
-                               holding_zeff::Bool=false) where {P<:Real}
+                               zeff_target_at_09::Union{Nothing,Float64}=nothing) where {P<:Real}
     cp1d = dd.core_profiles.profiles_1d[]
     rho = cp1d.grid.rho_tor_norm
 
@@ -400,14 +400,13 @@ function pedestal_density_tanh(dd::IMAS.dd, par::OverrideParameters{P,FUSEparame
     end
 
     #NOTE: Zeff can change after a pedestal actor is run, even though actors like EPED and WPED only operate on the temperature profiles.
-    # This is because in FUSE the calculation of Zeff is temperature dependent.
-    # Skipped when the flux matcher is already holding densities to a prescribed Zeff —
-    # zeff_ped is an independent target unrelated to evolve_densities=:zeff's zeff_target,
-    # and would silently fight it every iteration otherwise.
-    if !holding_zeff
-        zeff_ped = IMAS.get_from(dd, Val(:zeff_ped), par.zeff_from, rho09) * zeff_factor
-        IMAS.scale_ion_densities_to_target_zeff!(cp1d, rho09, zeff_ped)
-    end
+    # This is because in FUSE the calculation of Zeff is temperature dependent, and the
+    # density-shape blending above (ne_ped-height matching) already perturbs it. This
+    # rescale corrects that — but when the flux matcher is holding densities to a
+    # prescribed zeff_target, the target here must be THAT profile (interpolated at
+    # rho09), not an independent zeff_ped source that would fight it every iteration.
+    zeff_ped = zeff_target_at_09 !== nothing ? zeff_target_at_09 : IMAS.get_from(dd, Val(:zeff_ped), par.zeff_from, rho09) * zeff_factor
+    IMAS.scale_ion_densities_to_target_zeff!(cp1d, rho09, zeff_ped)
 
     return nothing
 end
@@ -710,9 +709,14 @@ function run_selected_pedestal_model(actor::ActorPedestal; density_factor::Float
 
     ed = actor.act.ActorFluxMatcher.evolve_densities
     holding_zeff = ed == :zeff || (ed isa AbstractDict && any(v == :zeff for v in values(ed)))
+    zeff_target_at_09 = if holding_zeff && actor.act.ActorFluxMatcher.zeff_target !== nothing
+        IMAS.interp1d(cp1d.grid.rho_tor_norm, actor.act.ActorFluxMatcher.zeff_target).(0.9)
+    else
+        nothing
+    end
 
     if par.density_match == :ne_ped
-        pedestal_density_tanh(dd, par; density_factor, zeff_factor, nn_prediction=actor.nn_prediction, holding_zeff)
+        pedestal_density_tanh(dd, par; density_factor, zeff_factor, nn_prediction=actor.nn_prediction, zeff_target_at_09)
         finalize(step(actor.ped_actor))
 
     elseif par.density_match == :ne_line
@@ -722,7 +726,7 @@ function run_selected_pedestal_model(actor::ActorPedestal; density_factor::Float
 
         # run pedestal model on scaled density
         par.ne_from = :core_profiles
-        pedestal_density_tanh(dd, par; density_factor=1.0, zeff_factor, nn_prediction=actor.nn_prediction, holding_zeff)
+        pedestal_density_tanh(dd, par; density_factor=1.0, zeff_factor, nn_prediction=actor.nn_prediction, zeff_target_at_09)
 
         try
             # scale thermal densities to match desired line average (and temperatures accordingly, in case they matter)
