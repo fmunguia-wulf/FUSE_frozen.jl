@@ -2,6 +2,88 @@
 
 This guide walks you through setting up everything you need to run FUSE: the **Julia** language, the **FUSE** package, the **`fusebot`** helper, and an optional **JupyterLab** environment with Julia kernels.
 
+## One-command install
+
+These scripts install FUSE, Revise, fusebot, the Jupyter stack (`fuse` conda env), IJulia kernels, and clone [`FuseExamples`](https://github.com/ProjectTorreyPines/FuseExamples).
+
+They then activate the `fuse` env, run `fusebot install_IJulia` (or `make install_IJulia` / `scripts/install_ijulia.sh` if fusebot fails), and finish by executing the **first three cells** of `FuseExamples/fluxmatcher.ipynb`. A fresh install typically takes **20–40 minutes** (Julia packages + conda + IJulia + the first flux-matcher solve; the notebook cells are often ~6 minutes on one thread).
+
+### Laptop (Linux or macOS)
+
+From any directory on a personal machine. Installs [juliaup](https://github.com/JuliaLang/juliaup) when `julia` is missing and [Miniconda](https://docs.anaconda.com/miniconda/) when `conda` is missing.
+
+```bash
+curl -fsSL https://install.julialang.org | sh -s -- -y && \
+bash <(curl -fsSL https://raw.githubusercontent.com/ProjectTorreyPines/FUSE.jl/master/scripts/install_fuse_laptop.sh)
+```
+
+From a local `FUSE.jl` clone: `bash scripts/install_fuse_laptop.sh`
+
+Skip the notebook solve with `FUSE_SKIP_VERIFY=1 bash scripts/install_fuse_laptop.sh` if you only want packages + kernels.
+
+### NERSC (Perlmutter)
+
+From a login node (run the depot symlink under [Home quota / memory pressure](@ref nersc-home-quota) first if `$HOME` is under memory pressure). Loads `julia/1.11.7` and `conda` by default, then continues through IJulia, `FuseExamples`, and the fluxmatcher cells (fine on a login node — typically ~6 minutes on one thread for the notebook solve).
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ProjectTorreyPines/FUSE.jl/master/scripts/install_fuse_nersc.sh)
+```
+
+From a local `FUSE.jl` clone: `bash scripts/install_fuse_nersc.sh`
+
+Override the Julia module with `FUSE_JULIA_MODULE=julia/1.12.0 bash scripts/install_fuse_nersc.sh` when needed. Skip the notebook solve with `FUSE_SKIP_VERIFY=1` if desired. See [On NERSC (Perlmutter)](@ref nersc-install) for depot layout, `fusebot`, and Jupyter notes.
+
+### Windows
+
+From any directory in **PowerShell**. Installs Julia via [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/) (Microsoft Store) or the Julia App Installer when `julia` is missing, and Miniconda when `conda` is missing. Like the laptop and NERSC scripts, it finishes by running the first three `fluxmatcher.ipynb` cells unless you set `FUSE_SKIP_VERIFY=1`.
+
+```powershell
+winget install julia -s msstore --accept-source-agreements --accept-package-agreements --disable-interactivity; `
+irm https://raw.githubusercontent.com/ProjectTorreyPines/FUSE.jl/master/scripts/install_fuse_windows.ps1 | iex
+```
+
+From a local `FUSE.jl` clone: `.\scripts\install_fuse_windows.ps1`
+
+If `winget` is unavailable, install Julia with `Add-AppxPackage -AppInstallerFile https://install.julialang.org/Julia.appinstaller`, open a new terminal, then run the install script.
+
+### Re-verify `fluxmatcher.ipynb`
+
+The one-command installs already run the **first three cells** of [`FuseExamples/fluxmatcher.ipynb`](https://github.com/ProjectTorreyPines/FuseExamples/blob/master/fluxmatcher.ipynb). To re-run them later:
+
+* **Cell 0** (code): `using Revise`, `using Plots`, `using FUSE`
+* **Cell 1** (markdown): flux-matcher introduction (checked for presence, not executed)
+* **Cell 2** (code): flux-matches the DIII-D L-mode case — often ~6 minutes on one thread the first time (compilation plus the solve)
+
+**Linux, macOS, and NERSC:**
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ProjectTorreyPines/FUSE.jl/master/scripts/verify_fluxmatcher_notebook.sh)
+```
+
+Or from a `FUSE.jl` clone: `bash scripts/verify_fluxmatcher_notebook.sh`
+
+**Windows:**
+
+```powershell
+irm https://raw.githubusercontent.com/ProjectTorreyPines/FUSE.jl/master/scripts/verify_fluxmatcher_notebook.ps1 | iex
+```
+
+Or from a `FUSE.jl` clone: `.\scripts\verify_fluxmatcher_notebook.ps1`
+
+Then start JupyterLab in the directory that contains `FuseExamples/`:
+
+```bash
+conda activate fuse
+python -m jupyter lab
+```
+
+```powershell
+conda activate fuse
+python -m jupyter lab
+```
+
+Open `FuseExamples/fluxmatcher.ipynb` and run cells 0–2 in the notebook UI.
+
 ## Julia installation
 
 ### Desktop and laptop (juliaup)

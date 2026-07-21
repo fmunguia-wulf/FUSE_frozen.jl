@@ -12,10 +12,10 @@
 end
 
 mutable struct ActorFitProfiles{D,P} <: CompoundAbstractActor{D,P}
-    dd::IMAS.dd{D}
+    dd::IMAS.DD{D}
     par::OverrideParameters{P,FUSEparameters__ActorFitProfiles{P}}
     act::ParametersAllActors{P}
-    function ActorFitProfiles(dd::IMAS.dd{D}, par::FUSEparameters__ActorFitProfiles{P}, act::ParametersAllActors{P}; kw...) where {D<:Real,P<:Real}
+    function ActorFitProfiles(dd::IMAS.DD{D}, par::FUSEparameters__ActorFitProfiles{P}, act::ParametersAllActors{P}; kw...) where {D<:Real,P<:Real}
         logging_actor_init(ActorFitProfiles)
         par = OverrideParameters(par; kw...)
         return new{D,P}(dd, par, act)
@@ -23,7 +23,7 @@ mutable struct ActorFitProfiles{D,P} <: CompoundAbstractActor{D,P}
 end
 
 """
-    ActorFitProfiles(dd::IMAS.dd, act::ParametersAllActors; kw...)
+    ActorFitProfiles(dd::IMAS.DD, act::ParametersAllActors; kw...)
 
 Fits experimental diagnostic data from Thomson scattering and charge exchange recombination spectroscopy to create smooth plasma profiles.
 
@@ -37,7 +37,7 @@ This actor performs several key operations:
 
 The resulting fitted profiles are stored in `dd.core_profiles.profiles_1d[]` and provide the foundation for physics modeling.
 """
-function ActorFitProfiles(dd::IMAS.dd, act::ParametersAllActors; kw...)
+function ActorFitProfiles(dd::IMAS.DD, act::ParametersAllActors; kw...)
     actor = ActorFitProfiles(dd, act.ActorFitProfiles, act; kw...)
     step(actor)
     finalize(actor)
@@ -248,6 +248,19 @@ function _step(actor::ActorFitProfiles{D,P}) where {D<:Real,P<:Real}
             end
         end
         IMAS.enforce_quasi_neutrality!(cp1d, :D)
+
+        # Store bulk D density_thermal as data (symmetric with electrons/impurities,
+        # which store density_thermal and derive density). enforce_quasi_neutrality!
+        # leaves D with density as data and density_thermal as an expression, which
+        # restore_init_expressions! later deletes — without this, D's densities
+        # evaluate to zero wherever that deletion lands (see IMASdd selective_delete!
+        # early-return bug: only profiles_1d[1].ion[1] is affected in practice).
+        iD = findfirst(ion -> IMAS.is_hydrogenic(ion), cp1d.ion)
+        if iD !== nothing
+            bulk = cp1d.ion[iD]
+            bulk.density_thermal = bulk.density .- bulk.density_fast
+            IMAS.unfreeze!(bulk, :density)
+        end
     end
 
     # fit ωtor
