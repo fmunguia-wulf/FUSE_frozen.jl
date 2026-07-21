@@ -1,5 +1,4 @@
 
-
 """
     case_parameters(::Val{:D3D}, shot::Int;
         fit_profiles::Bool=true,
@@ -205,10 +204,10 @@ function case_parameters(::Val{:D3D}, shot::Int;
     @info("Loading files: $(join(map(basename,split(ini.ods.filename,","))," ; "))")
     ini.general.dd = dd1 = load_ods(ini; error_on_missing_coordinates=false, time_from_ods=true)
 
-    n_eq = length(ini.general.dd.equilibrium.time_slice)
-    t_eq = n_eq >= 2 ? ini.general.dd.equilibrium.time_slice[2].time : (n_eq == 1 ? ini.general.dd.equilibrium.time_slice[1].time : -Inf)
-    t_cp = length(ini.general.dd.core_profiles.profiles_1d) >= 2 ? ini.general.dd.core_profiles.profiles_1d[2].time : -Inf
-    ini.time.simulation_start = max(t_eq, t_cp)
+   n_eq = length(ini.general.dd.equilibrium.time_slice)
+   t_eq = n_eq >= 1 ? ini.general.dd.equilibrium.time_slice[1].time : -Inf
+   t_cp = length(ini.general.dd.core_profiles.profiles_1d) >= 1 ? ini.general.dd.core_profiles.profiles_1d[1].time : -Inf
+   ini.time.simulation_start = max(t_eq, t_cp) 
 
     # sanitize dd
     for nbu in dd1.nbi.unit
