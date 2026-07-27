@@ -251,18 +251,21 @@ access to the shared Lmod tree (e.g. `/fusion/usc/c8/modulefiles-git`) can drop
 
 ### Publishing to GHCR (all sites and laptops)
 
-Because the image uses the universal CPU target, the same build can be
-published once to the GitHub Container Registry and pulled everywhere:
+Release images are built on omega and pushed to
+`ghcr.io/projecttorreypines/fuse:<version>` (+ `latest`) with the script
+below. (A [`container` workflow](../../.github/workflows/container.yml)
+exists for CI builds but is manual-dispatch-only and currently disabled: the
+sysimage emission peaks at ~98.5 GiB RSS, far beyond standard GitHub-hosted
+runners — it would need the 32-core/128 GB larger-runner class.)
+
+To publish after `build.sh` on the same omega node:
 
 ```bash
 # after build.sh, on the same node; needs gh auth with write:packages
 FUSE_ENVIRONMENT=<version> ./deploy/omega-container/publish_ghcr.sh
 ```
 
-This pushes `ghcr.io/projecttorreypines/fuse:<version>`. The first push
-creates the package **private**; a package admin must make it public once
-(package settings → Change visibility) so it can be pulled unauthenticated.
-Consuming it:
+Consuming the published image:
 
 ```bash
 # Laptop / any machine with Docker or podman (x86_64)
