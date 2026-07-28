@@ -127,6 +127,13 @@ function _finalize(actor::ActorCHEASE{D,P}) where {D<:Real, P<:Real}
 
     # convert from fixed to free boundary equilibrium
     eqt.global_quantities.free_boundary = Int(par.free_boundary)
+    if !par.free_boundary
+        # strike_point (from prepare()'s pulse_schedule copy) is only ever
+        # used below for free-boundary PF-coil fitting (strike_cps); for a
+        # fixed-boundary solve it's unused leftover data that would
+        # otherwise leak into the output/plot as a spurious strike point.
+        empty!(eqt.boundary.strike_point)
+    end
     if par.free_boundary
 
         EQ = MXHEquilibrium.efit(actor.chease.gfile, 1)
