@@ -1,5 +1,3 @@
-
-
 """
     case_parameters(::Val{:D3D}, shot::Int;
         fit_profiles::Bool=true,
@@ -81,7 +79,6 @@ function case_parameters(::Val{:D3D}, shot::Int;
     if !isdir(local_path)
         mkdir(local_path)
     end
-
 
     # to get user EFITs use (shot, USER01) to get (shot01, EFIT)
     if contains(EFIT_tree, "USER")
@@ -201,6 +198,7 @@ function case_parameters(::Val{:D3D}, shot::Int;
             Base.run(`bash $local_path/local_driver.sh`)
         end
     end
+
     # load experimental ods
     if pull_gslite_min
         # gslite-min pull: nbi geometry comes from DIII-D templates (no nbi_ods file)
@@ -211,10 +209,23 @@ function case_parameters(::Val{:D3D}, shot::Int;
     @info("Loading files: $(join(map(basename,split(ini.ods.filename,","))," ; "))")
     ini.general.dd = dd1 = load_ods(ini; error_on_missing_coordinates=false, time_from_ods=true)
 
-    n_eq = length(ini.general.dd.equilibrium.time_slice)
-    t_eq = n_eq >= 2 ? ini.general.dd.equilibrium.time_slice[2].time : (n_eq == 1 ? ini.general.dd.equilibrium.time_slice[1].time : -Inf)
-    t_cp = length(ini.general.dd.core_profiles.profiles_1d) >= 2 ? ini.general.dd.core_profiles.profiles_1d[2].time : -Inf
-    ini.time.simulation_start = max(t_eq, t_cp)
+    # disable fit_profiles for single-time EFITs and align times
+    if length(dd1.equilibrium.time_slice) == 1
+        if fit_profiles
+            @warn "Single-time EFIT detected — disabling fit_profiles"
+            fit_profiles = false
+        end
+        # snap equilibrium time to nearest core profiles time to avoid floating point mismatches
+        eq_time = dd1.equilibrium.time_slice[1].time
+        cp_times = [cp1d.time for cp1d in dd1.core_profiles.profiles_1d]
+        nearest_cp_time = cp_times[argmin(abs.(cp_times .- eq_time))]
+        dd1.equilibrium.time_slice[1].time = nearest_cp_time
+        dd1.equilibrium.time .= nearest_cp_time
+        dd1.global_time = nearest_cp_time
+        ini.time.simulation_start = nearest_cp_time
+    else
+        ini.time.simulation_start = max(dd1.equilibrium.time_slice[2].time, dd1.core_profiles.profiles_1d[2].time)
+    end
 
     # sanitize dd
     for nbu in dd1.nbi.unit
@@ -514,9 +525,9 @@ function case_parameters(::Val{:D3D_machine})
 
     act.ActorTGLF.tglfnn_model = "sat1_em_d3d"
 
-    Ω = 1.0 / 1E6
-    act.ActorControllerIp.P = Ω * 100.0
-    act.ActorControllerIp.I = Ω * 20.0
+    Ω = 1.0 / 1E6
+    act.ActorControllerIp.P = Ω * 100.0
+    act.ActorControllerIp.I = Ω * 20.0
     act.ActorControllerIp.D = 0.0
 
     # average pedestal height, not peak
