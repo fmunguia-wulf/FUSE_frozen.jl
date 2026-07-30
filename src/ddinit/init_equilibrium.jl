@@ -35,6 +35,21 @@ function init_equilibrium!(dd::IMAS.DD, ini::ParametersAllInits, act::Parameters
                 cp1d.grid.psi = eqt.profiles_1d.psi
                 cp1d.j_tor = eqt.profiles_1d.j_tor
                 cp1d.pressure = eqt.profiles_1d.pressure
+
+            elseif !ismissing(act.ActorReplay, :replay_dd) && !isempty(act.ActorReplay.replay_dd.equilibrium.time_slice)
+                # take p and j from replay_dd's equilibrium (e.g. a kinetic EFIT) — much better seed
+                # than the analytic guess below when real experimental/replay data exists
+                time0 = dd.global_time
+                replay_eqt = act.ActorReplay.replay_dd.equilibrium.time_slice[time0]
+                psin_replay = replay_eqt.profiles_1d.psi_norm
+
+                rhon = range(0.0, 1.0, 129)
+                psin = rhon .^ 2
+                cp1d.grid.rho_tor_norm = rhon
+                cp1d.grid.psi = psin
+                cp1d.j_tor    = IMAS.interp1d(psin_replay, replay_eqt.profiles_1d.j_tor).(psin)
+                cp1d.pressure = IMAS.interp1d(psin_replay, replay_eqt.profiles_1d.pressure).(psin)
+
             else
                 # guess pressure and j_tor from input current and peak pressure
                 rhon = range(0.0, 1.0, 129)
