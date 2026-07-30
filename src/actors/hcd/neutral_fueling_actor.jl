@@ -204,7 +204,7 @@ function get_At(r::AbstractVector{Float64}, n::Int, r0::Float64, odelr::Float64,
     x1 = 0.0
     at1 = zeros(n)
     for j in 1:n
-        while r[j] > ra[i+1]
+        while i < nra && r[j] > ra[i+1]
             i += 1
             a12 = a1[i]
             x2 = x(ra[i])
@@ -216,7 +216,7 @@ function get_At(r::AbstractVector{Float64}, n::Int, r0::Float64, odelr::Float64,
             end
         end
 
-        a12 = a1f(i, r[j])
+        a12 = a1f(min(i, nram1), r[j])
         x2 = x(r[j])
         a1int += (a11 + a12) * (x2 - x1)
         at1[j] = 0.5 * a1int
