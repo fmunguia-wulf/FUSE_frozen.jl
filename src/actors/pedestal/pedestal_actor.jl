@@ -362,7 +362,8 @@ The EPED and WPED models only operate on the temperature profiles
 """
 function pedestal_density_tanh(dd::IMAS.DD, par::OverrideParameters{P,FUSEparameters__ActorPedestal{P}};
                                density_factor::Float64, zeff_factor::Float64,
-                               nn_prediction::Union{Nothing,NamedTuple}=nothing) where {P<:Real}
+                               nn_prediction::Union{Nothing,NamedTuple}=nothing,
+                               zeff_target_at_09::Union{Nothing,Float64}=nothing) where {P<:Real}
     cp1d = dd.core_profiles.profiles_1d[]
     rho = cp1d.grid.rho_tor_norm
 
@@ -399,8 +400,12 @@ function pedestal_density_tanh(dd::IMAS.DD, par::OverrideParameters{P,FUSEparame
     end
 
     #NOTE: Zeff can change after a pedestal actor is run, even though actors like EPED and WPED only operate on the temperature profiles.
-    # This is because in FUSE the calculation of Zeff is temperature dependent.
-    zeff_ped = IMAS.get_from(dd, Val(:zeff_ped), par.zeff_from, rho09) * zeff_factor
+    # This is because in FUSE the calculation of Zeff is temperature dependent, and the
+    # density-shape blending above (ne_ped-height matching) already perturbs it. This
+    # rescale corrects that — but when the flux matcher is holding densities to a
+    # prescribed zeff_target, the target here must be THAT profile (interpolated at
+    # rho09), not an independent zeff_ped source that would fight it every iteration.
+    zeff_ped = zeff_target_at_09 !== nothing ? zeff_target_at_09 : IMAS.get_from(dd, Val(:zeff_ped), par.zeff_from, rho09) * zeff_factor
     IMAS.scale_ion_densities_to_target_zeff!(cp1d, rho09, zeff_ped)
 
     return nothing
@@ -701,8 +706,17 @@ function run_selected_pedestal_model(actor::ActorPedestal; density_factor::Float
     eq = dd.equilibrium
     eqt = eq.time_slice[]
     cp1d = dd.core_profiles.profiles_1d[]
+
+    ed = actor.act.ActorFluxMatcher.evolve_densities
+    holding_zeff = ed == :zeff || (ed isa AbstractDict && any(v == :zeff for v in values(ed)))
+    zeff_target_at_09 = if holding_zeff && actor.act.ActorFluxMatcher.zeff_target !== nothing
+        IMAS.interp1d(cp1d.grid.rho_tor_norm, actor.act.ActorFluxMatcher.zeff_target).(0.9)
+    else
+        nothing
+    end
+
     if par.density_match == :ne_ped
-        pedestal_density_tanh(dd, par; density_factor, zeff_factor, nn_prediction=actor.nn_prediction)
+        pedestal_density_tanh(dd, par; density_factor, zeff_factor, nn_prediction=actor.nn_prediction, zeff_target_at_09)
         finalize(step(actor.ped_actor))
 
     elseif par.density_match == :ne_line
@@ -712,7 +726,7 @@ function run_selected_pedestal_model(actor::ActorPedestal; density_factor::Float
 
         # run pedestal model on scaled density
         par.ne_from = :core_profiles
-        pedestal_density_tanh(dd, par; density_factor=1.0, zeff_factor, nn_prediction=actor.nn_prediction)
+        pedestal_density_tanh(dd, par; density_factor=1.0, zeff_factor, nn_prediction=actor.nn_prediction, zeff_target_at_09)
 
         try
             # scale thermal densities to match desired line average (and temperatures accordingly, in case they matter)
@@ -773,15 +787,24 @@ function _step(replay_actor::ActorReplay, actor::ActorPedestal, replay_dd::IMAS.
     replay_cp1d = replay_dd.core_profiles.profiles_1d[time0]
     rho = cp1d.grid.rho_tor_norm
 
-    # densities
-    cp1d.electrons.density_thermal = IMAS.blend_core_edge(cp1d.electrons.density_thermal, replay_cp1d.electrons.density_thermal, rho, par.rho_nml, par.rho_ped; method=:shift)
-    IMAS.unfreeze!(cp1d.electrons, :density)
-    for (ion, replay_ion) in zip(cp1d.ion, replay_cp1d.ion)
-        if !ismissing(ion, :density)
-            ion.density = IMAS.blend_core_edge(ion.density, replay_ion.density, rho, par.rho_nml, par.rho_ped; method=:shift)
-            IMAS.unfreeze!(ion, :density_thermal)
-            if IMAS.hasdata(ion, :density_fast)
-                ion.density_fast .= min.(ion.density_fast, ion.density)  # can't have more fast than total
+    # densities — skipped entirely when the flux matcher is holding densities to a
+    # prescribed Zeff. The :shift blend below re-anchors the core to replay_dd's
+    # original density at the pedestal boundary via an ADDITIVE offset, which does
+    # not preserve Zeff (Zeff = Σ nᵢZᵢ²/ne is nonlinear in the densities) — it silently
+    # fights the flux matcher's own zeff-preserving rescale every iteration.
+    ed = actor.act.ActorFluxMatcher.evolve_densities
+    holding_zeff = ed == :zeff || (ed isa AbstractDict && any(v == :zeff for v in values(ed)))
+
+    if !holding_zeff
+        cp1d.electrons.density_thermal = IMAS.blend_core_edge(cp1d.electrons.density_thermal, replay_cp1d.electrons.density_thermal, rho, par.rho_nml, par.rho_ped; method=:shift)
+        IMAS.unfreeze!(cp1d.electrons, :density)
+        for (ion, replay_ion) in zip(cp1d.ion, replay_cp1d.ion)
+            if !ismissing(ion, :density)
+                ion.density = IMAS.blend_core_edge(ion.density, replay_ion.density, rho, par.rho_nml, par.rho_ped; method=:shift)
+                IMAS.unfreeze!(ion, :density_thermal)
+                if IMAS.hasdata(ion, :density_fast)
+                    ion.density_fast .= min.(ion.density_fast, ion.density)  # can't have more fast than total
+                end
             end
         end
     end
